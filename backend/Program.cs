@@ -1,4 +1,7 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Net;
+using System.Security.Claims;
+using System.Security.Principal;
 using System.Text;
 using backend.Data;
 using backend.Models;
@@ -52,8 +55,9 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Введіть JWT - токен, отриманий з ендпоінта / auth / login.";
+        Description = "Введіть JWT - токен, отриманий з ендпоінта / auth / login."
     });
+
 
     options.AddSecurityRequirement(doc => new OpenApiSecurityRequirement
 {
@@ -141,6 +145,54 @@ return Results.Conflict("Користувач з таким email вже існує.");
 new {user.Id, user.Name, user.Email});
 }).WithTags("Auth");
 
+app.MapPost("/auth/login", async(LoginDto dto, AppDbContext db,
+IConfiguration config) =>
+{
+    var user = await db.Users.FirstOrDefaultAsync(u => u.Email ==
+    dto.Email);
+    if (user is null || !BCrypt.Net.BCrypt.Verify(dto.Password,
+    user.PasswordHash))
+        return Results.Unauthorized();
+
+    var token = CreateToken(user, config);
+    return Results.Ok(new {access_token = token, token_type = "Bearer"
+    });
+}).WithTags("Auth");
+
+app.MapGet("/auth/me", (ClaimsPrincipal principal) =>
+Results.Ok(new
+{
+
+    Id = principal.FindFirstValue(ClaimTypes.NameIdentifier),
+    Email = principal.FindFirstValue(ClaimTypes.Email),
+}))
+.RequireAuthorization()
+.WithTags("Auth");
+
 
 app.Run();
+
+
+
+static string CreateToken(User user, IConfiguration config)
+{
+    var claims = new[]
+    {
+    new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+    new Claim(ClaimTypes.Email, user.Email),
+};
+    var key = new
+        SymmetricSecurityKey(Encoding.UTF8.GetBytes(config["Jwt:Key"]!));
+    var creds = new SigningCredentials(key,
+        SecurityAlgorithms.HmacSha256);
+    var token = new JwtSecurityToken(
+        issuer: config["Jwt:Issuer"],
+        audience: config["Jwt:Audience"],
+        claims: claims,
+        expires: DateTime.UtcNow.AddHours(2),
+        signingCredentials: creds);
+    return new JwtSecurityTokenHandler().WriteToken(token);
+}
+record LoginDto(string Email, string Password);
+
 record RegisterDto(string Name, string Email, string Password);

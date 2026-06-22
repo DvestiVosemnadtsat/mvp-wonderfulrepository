@@ -29,7 +29,7 @@ public class AppDbContext : DbContext
                 Id = 2,
                 Name = "Jane Smith",
                 Email = "mark2@gmail.com"
-            });
+            }); 
 
 
 
